@@ -45,6 +45,11 @@
 
 13. HashMap和TreeMap的区别, 存储方式不一样导致查找效率不一样, 都用到了红黑树, 但是TreeMap没有hash存到数组, 而是所有值都存到了树中, TreeMap的作用是key是有序的, 而hashmap的key是无序的, 但是hashmap更适合插入, 删除和查找, 如果需要有序地遍历map, 那么使用TreeMap, 其他时候用hashmap就可以
 
+14. 线程不安全实例
+
+    1. 1.7中的环形链表. 1线程变量指向B后挂起, 2线程转移完A->B后, 线程1继续执行将B->A, 就变成了B->A->A
+    2. 数据丢失, 在数组位置为空的情况下没有使用CAS进行插入, 两个线程同时进行插入就会导致一个线程的数据丢失
+
 ## 2. 二分查找树(Binary Search Tree)&AVL树
 
 1. 二分查找树即将比该节点小的值插入到左边, 大的值插入到右边, 树高为logn~n, 退化为链表的时候高度为n, 查找的时间复杂度为O(logn~n)
@@ -368,6 +373,18 @@ static <K,V> TreeNode<K,V> balanceDeletion(TreeNode<K,V> root, TreeNode<K,V> x) 
 
 自旋锁适用于锁使用者保持锁时间比较短的情况, 在这种情况下自旋锁的效率会远高于互斥锁
 
+### 4.5 synchronized以及锁升级
+
+1. 修饰普通方法: 锁当前实例对象
+2. 修饰静态方法: 锁当前class类对象
+3. 修饰代码块: 锁synchronized后面括号里面的对象
+
+锁升级(简单总结):
+
+​	无锁->偏向锁->轻量级锁->重量级锁
+
+​	当一个对象刚刚被new出来的时候是无锁, 第一个线程来一看没有锁, 就使用一次CAS将自己的thread id 放到mark word中,   之后相同线程过来查看是相同的thread id, 则不再加锁, 这时如果有另一线程前来竞争, 则升级为轻量级锁, 此时不断通过CAS自旋来竞争锁, 没有竞争到锁的线程一直自旋, 直到自旋次数达到限制或者竞争的线程数量超过CPU核心的一半, 则升级为重量级锁, 此时竞争线程全部进入waiting状态, 直到锁释放被唤醒 
+
 ## 5 ConcurrentHashMap
 
 Collections.synchronizedMap(Map) 和HashTable都是线程安全的, 但是实现方式都是给每个方法加上每个方法加上synchronized关键字, 效率较低, 也可使用Collections.synchronizedMap(Map, mutex), 自行传入一个对象作为互斥锁, 不传就用this作为互斥所.
@@ -417,3 +434,84 @@ get:
 因为锁是加在segment上的, 所以理论上来说, 就多少个segment, 就支持多少的并发
 
 但是和1.7的HashMap有一样的问题, 就是需要遍历链表, 如果链表长度很长, 则效率很差. 1.8又做了很多改进
+
+### 5.3.2 Java1.8
+
+1.8中ConcurrentHashMap和HashMap的底层数据结构一样, 都是Node数组加链表, 红黑树的形式, ConcurrentHashMap在进行写入的时候做了一些额外的多线程安全的操作, 1.8中对synchronized关键字进行了优化, 所以ConcurrentHashMap中放弃了使用ReentrantLock改用synchronized
+
+Put:
+
+1. 判断key或value是否为空, 如果为空, 则抛出异常
+2. 计算key的hash值
+3. 判断是否需要初始化数组
+4. 将key的hash值和数组长度进行hash再定位其在数组中的位置, 如果该位置是null, 则用CAS算法写入, 此时不加锁(CAS为乐观锁), 如果写入成功就break, 否则表示有其他线程更新了该值, 则又从判断数组是否为空开始判断
+5. 判断当前位置是否在进行扩容, 如果是就调用`tab = helpTransfer(tab, f);`帮助其转移数据, 完成后又从数组是否为空开始判断
+6. 如果上面3 4 5都不满足, 就对当前位置的node使用synchronized进行上锁并写入链表或者红黑树
+7. 写入之后检查当前node的长度是否超过TREEIFY_THRESHOLD(8), 如果超过8, 再判断总的大小是否小于MIN_TREEIFY_CAPACITY(64), 如果不够64, 则进行扩容, 否则才将链表转为红黑树
+
+Get:
+
+​	get相对就简单多了, 首先hash找到对应数组上的位置, 如果就在root上, 则直接返回, 否则就按链表或二叉树的查找方法进行查找
+
+## 6 List
+
+ArrayList: 查询效率高因为其内存连续性, 插入和删除到效率可能很低
+
+LinkedList: 插入和删除到效率很高
+
+Vector: 数据结构和ArrayList一样, 只是每个方法加了synchronized关键字以保证其线程安全, 类似于HashMap和ConcurrentHashMap, 使用java.util.concurrent.CopyOnWriteArrayList效率会更高
+
+
+
+ArrayList插入:
+
+​	插入到时候都会检查capacity即数组长度, 若不够则进行扩容, 规则为`length+length>>1`(>>1表示位运算除以2的1次方), 下面说的情况中都会省略capacity检查
+
+- 若调用add(E e), 则直接插入到数组末尾
+- 若调用add(int index, E element), 则需要使用System.arraycopy将index后面到所有值向后移动一位
+
+ArrayList删除:
+
+​	删除的时候必须传入index, 因此删除之后必须将index后面的所有值向前移动一位
+
+因此如果插入和删除一直在数组到尾部进行, 则其效率很高, 插入和删除的index越靠近头部, 效率越低
+
+
+
+由上面可知ArrayList实现队列不合适, 不论是头部插入尾部删除还是尾部插入头部删除, 效率都很低
+
+固定长度的数组(循环数组)可用来实现队列, 两个指针start和end, start指针进行处理, end指针进行插入, 当指针指到尾部后又从头上开始循环
+
+## 复合操作下的线程安全
+
+Vector, HashTable以及使用Collection下到synchronized获得一个线程安全到容器后, 我们在调用单个方法入put和add等到时候是线程安全的. 但是如果我们同时调用size和put方法就可能出问题, 在将size得到到结果在put中使用的时候, 就可能出问题, 即不能保证原子性, 这个时候, 需要将调用这两个方法的方法加锁. ConcurrentHashMap到put方法也是不能保证原子性安全到, 他提供了putIfAbsent方法可以给你来实现复合操作的安全, 以及CopyOnWrite系列的也能保证安全
+
+
+
+### 7 TCP
+
+1. exec 9<> /dev/tcp/www.baidu.com/80
+
+2. echo -e "GET / HTTP/1.0\n" 1>&9
+
+3. cat 0<&9
+
+4. netstat -natp
+
+5. 五层: 应用层, 传输控制层, 网络层, 链路层, 物理层
+
+6. 传输控制层: TCP, UDP
+
+7. 三次握手是为了能够建立一个能够稳定传输数据到连接
+
+   1. client  -syn-> server
+
+   2. client <-syc+ack- server , then client know it can send to and recieve from server, client become estalished mode
+
+   3. client -ack-> server, then server also known, server also become estalished mode
+
+      三次握手完成
+
+8. 四次挥手
+
+   1. 
