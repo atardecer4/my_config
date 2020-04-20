@@ -359,11 +359,11 @@ static <K,V> TreeNode<K,V> balanceDeletion(TreeNode<K,V> root, TreeNode<K,V> x) 
 
 ### 4.3 volatile
 
-- 保证了不同线程对这个变量进行操作时的可见性，即一个线程修改了某个变量的值，这新值对其他线程来说是立即可见的。（实现**可见性**）
+- 保证了不同线程对这个变量进行操作时的可见性, 即一个线程修改了某个变量的值, 这新值对其他线程来说是立即可见的. （实现**可见性**）
 
-- 禁止进行指令重排序。（实现**有序性**）
+- 禁止进行指令重排序. （实现**有序性**）
 
-- volatile 只能保证对单次读/写的原子性。i++ 这种操作不能保证**原子性**。
+- volatile 只能保证对单次读/写的原子性. i++ 这种操作不能保证**原子性**. 
 
   用了之后安全
 
@@ -384,6 +384,76 @@ static <K,V> TreeNode<K,V> balanceDeletion(TreeNode<K,V> root, TreeNode<K,V> x) 
 ​	无锁->偏向锁->轻量级锁->重量级锁
 
 ​	当一个对象刚刚被new出来的时候是无锁, 第一个线程来一看没有锁, 就使用一次CAS将自己的thread id 放到mark word中,   之后相同线程过来查看是相同的thread id, 则不再加锁, 这时如果有另一线程前来竞争, 则升级为轻量级锁, 此时不断通过CAS自旋来竞争锁, 没有竞争到锁的线程一直自旋, 直到自旋次数达到限制或者竞争的线程数量超过CPU核心的一半, 则升级为重量级锁, 此时竞争线程全部进入waiting状态, 直到锁释放被唤醒 
+
+### 4.6 ReentrantLock
+
+ReentrantLock与synchronized都是独占锁, 相较于synchronized, ReentrantLock需要手动加锁和解锁, 操作更复杂, 但是灵活度高了很多, 同时ReentrantLock可以响应中断. 这些特点使得它适合于更为复杂的多线程场景
+
+1. 公平锁与非公平锁
+
+   `new ReentrantLock(true)`, 在创建锁对象的时候, 传入参数true, 获得的锁就是公平锁, 即哪个线程等待时间最长, 则那个线程先获得锁. 非公平锁就是创建的时候传入false或不传, 哪个线程运气好, 那个获得锁
+
+2. 响应中断
+
+   上锁时调用`lockInterruptibly()`, `catch(InterruptedException)`, 然后在线程调用`interrupt()`方法后, 就可以将该线程中断, 拿到的锁释放, 人为解决死锁
+
+3. 限时等待
+
+   上锁时使用`tryLock()`, `tryLock(long timeout,TimeUnit unit)`, `tryLock`会尝试去获得一次锁(非公平), 如果失败, 返回false, 此时线程可以去做其他事, 如果传入时间, 则会在指定时间去尝试获取锁(公平)
+
+4. 使用condition实现线程间等待通知
+
+   保证两个线程该休眠时休眠, 该工作时工作
+
+   ```java
+   public class MyBlockingQueue<E> {
+       int size;//阻塞队列最大容量
+       ReentrantLock lock = new ReentrantLock();
+       LinkedList<E> list=new LinkedList<>();//队列底层实现
+       Condition notFull = lock.newCondition();//队列满时的等待条件
+       Condition notEmpty = lock.newCondition();//队列空时的等待条件
+   
+       public MyBlockingQueue(int size) {
+           this.size = size;
+       }
+   
+       public void enqueue(E e) throws InterruptedException {
+           lock.lock();
+           try {
+               while (list.size() ==size)//队列已满,在notFull条件上等待
+                   notFull.await();
+               list.add(e);//入队:加入链表末尾
+               System.out.println("入队：" +e);
+               notEmpty.signal(); //通知在notEmpty条件上等待的线程
+           } finally {
+               lock.unlock();
+           }
+       }
+   
+       public E dequeue() throws InterruptedException {
+           E e;
+           lock.lock();
+           try {
+               while (list.size() == 0)//队列为空,在notEmpty条件上等待
+                   notEmpty.await();
+               e = list.removeFirst();//出队:移除链表首元素
+               System.out.println("出队："+e);
+               notFull.signal();//通知在notFull条件上等待的线程
+               return e;
+           } finally {
+               lock.unlock();
+           }
+       }
+   }
+   ```
+
+   *以上代码出自 [cnblogs]([https://www.cnblogs.com/takumicx/p/9338983.html#4-%E7%BB%93%E5%90%88condition%E5%AE%9E%E7%8E%B0%E7%AD%89%E5%BE%85%E9%80%9A%E7%9F%A5%E6%9C%BA%E5%88%B6](https://www.cnblogs.com/takumicx/p/9338983.html#4-结合condition实现等待通知机制))*
+
+5. CountDownLatch和CyclicBarrier
+
+   CountDownLatch是主线程阻塞, n个线程进行工作, 完成工作后调用countDown(), 当减到0后, 主线程继续
+
+   CyclicBarrier是n个线程进行某项工作, 到达指定地点后阻塞, 直到所有线程都到达该地点, 所有线程一起继续
 
 ## 5 ConcurrentHashMap
 
@@ -488,30 +558,83 @@ Vector, HashTable以及使用Collection下到synchronized获得一个线程安�
 
 
 
-### 7 TCP
+### 7 TCP/IP
+TCP/IP协议分为四层, **应用层 传输控制层 网络层 网络接口层**, 其中网络接口层可以划分为**链路层**和**物理层**
 
-1. exec 9<> /dev/tcp/www.baidu.com/80
+### 7.1 应用层
 
-2. echo -e "GET / HTTP/1.0\n" 1>&9
+即应用程序对应一层, 每个应用选择一个应用层协议(e.g. HTTP HTTPS FTP)使用一个socket进行与互联网中的另一台计算机进行通信
 
-3. cat 0<&9
+### 7.2 传输控制层
 
-4. netstat -natp
+在这一层中会选择两种协议进行传输分别是**TCP(Transmission Control Protocol)**和**UDP(User Datagram Protocol)**, 通常问的TCP即这里的TCP协议
 
-5. 五层: 应用层, 传输控制层, 网络层, 链路层, 物理层
+#### TCP
 
-6. 传输控制层: TCP, UDP
+是一种面向连接的、可靠的、基于字节流的通信协议, 数据传输前**三次握手**建立连接, 传输完成后**四次挥手**断开连接, 通过这种方式去尽可能保证连接的稳定性(不能保证绝对稳定)
 
-7. 三次握手是为了能够建立一个能够稳定传输数据到连接
+- 三次握手
 
-   1. client  -syn-> server
+  1. client  -syn-> server // client发送一个SYN标志的包到server, client状态变为SYN-SEND
 
-   2. client <-syc+ack- server , then client know it can send to and recieve from server, client become estalished mode
+  2. client <-syc+ack- server // server收到后创建一个SYN和ACK标志的包发送给client, server状态变为SYN-RECV
 
-   3. client -ack-> server, then server also known, server also become estalished mode
+  3. client -ack-> server // client收到server发的SYN+ACK包, 再创建一个ACK标志的包发送给server, client状态变为ESTABLISHED, 之后server收到client的ACK包, server状态也变为ESTABLISHED
 
-      三次握手完成
+     ![shake](https://upload-images.jianshu.io/upload_images/11362584-75c208edcfb986fc.jpeg?imageMogr2/auto-orient/strip|imageView2/2/w/438/format/webp)
 
-8. 四次挥手
+  总结, 双方互相确认网络畅通后才创建资源(socket)
 
-   1. 
+- 四次挥手
+
+  1. clinet -fin-> server // client发送一个FIN标志的包给server, client状态变为FIN_WAIT_1
+  
+  2. client <-ack- server // server收到FIN包后, 发送一个ACK包给client表示知道需要断开了, 但是还需要一点准备时间, server状态变为CLOSE_WAIT
+  
+3. client <-fin- server // 经过一段时间后, server准备好了, 向client再发送一个FIN包, server状态变为LAST_ACK
+  
+  4. client -ack-> server // client收到FIN包后, 发送一个ACK包给server, client状态变为TIME_WAIT, server收到ACK包后, 状态变为CLOSE
+  
+     ![wave](https://upload-images.jianshu.io/upload_images/11362584-63aad9661131a2a8.jpeg?imageMogr2/auto-orient/strip|imageView2/2/w/439/format/webp)
+  
+  clinet需要变为TIME_WAIT等待2MSL(Maximum Segment Lifetime)以确保server收到了client发的ACK包, 因为client在发送ACK包后无法知晓是否server有收到, 如果server没有收到, 就会重发FIN包, 之后client再次发送ACK包再等待2MSL时间, 2MSL是数据包往返的最大时间, 如果2MSL后还没有收到server重发的FIN包, 则表明server收到了ACK包, 2MSL后client状态变为CLOSE
+  
+  *图片出自 https://www.jianshu.com/p/066d99da7cbd*
+
+#### UDP
+
+与TCP相反, 是一种无连接, 非可靠的通信方式, UDP不保证数据的正确性以及顺序, 但是其传输数据快, 耗费资源少, 通常使用场景如视频通话, 多人游戏中任务位置等数据传输, 即使丢包不会重新发送而是继续往前
+
+### 7.3 网络层
+
+网络层的主要功能就是根据目标IP地址选择如何投递它, 将目标IP和子网掩码做位与运算, 如果得到的结果是自己局域网的地址, 则直接发送给局域网中的目标主机, 否则就寻找下一跳(next hop)路由器, 多次重复这一过程, 数据包最终到达目标主机
+
+#### 7.4 网络接口层
+
+数据链路层两个常用的协议是ARP协议（Address Resolve Protocol, 地址解析协议）和RARP协议（ReverseAddress Resolve Protocol, 逆地址解析协议）. 它们实现了IP地址和机器物理地址（通常是MAC地址, 以太网、令牌环和802.11无线网络都使用MAC地址）之间的相互转换. 
+
+ARP协议原理:
+
+​	主机A的IP地址为192.168.1.1, MAC地址为0A-11-22-33-44-01;
+
+​	主机B的IP地址为192.168.1.2, MAC地址为0A-11-22-33-44-02;
+
+1. 根据主机A上的路由表内容, IP确定用于访问主机B的转发IP地址是192.168.1.2. 然后A主机在自己的本地ARP缓存中检查主机B的匹配MAC地址.
+2. 如果主机A在ARP缓存中没有找到映射, 它将询问192.168.1.2的硬件地址, 从而将ARP请求帧广播到本地网络上的所有主机. 源主机A的IP地址和MAC地址都包括在ARP请求中. 本地网络上的每台主机都接收到ARP请求并且检查是否与自己的IP地址匹配. 如果主机发现请求的IP地址与自己的IP地址不匹配, 它将丢弃ARP请求.
+
+   	3. 主机B确定ARP请求中的IP地址与自己的IP地址匹配, 则将主机A的IP地址和MAC地址映射添加到本地ARP缓存中. 
+   	4. 主机B将包含其MAC地址的ARP回复消息直接发送回主机A. 
+   	5. 当主机A收到从主机B发来的ARP回复消息时, 会用主机B的IP和MAC地址映射更新ARP缓存. 本机缓存是有生存期的, 生存期结束后, 将再次重复上面的过程. 主机B的MAC地址一旦确定, 主机A就能向主机B发送IP通信了. 
+
+在通过上述拿到对应主机或路由器MAC地址后, 通过物理层将包发送出去
+
+```shell
+exec 9<> /dev/tcp/www.baidu.com/80
+echo -e "GET / HTTP/1.0\n" 1>&9
+cat 0<&9
+netstat -natp
+tcpdump -nn -i {网卡}  // 可通过ifconfig来查看需要抓包的网卡
+```
+
+
+
