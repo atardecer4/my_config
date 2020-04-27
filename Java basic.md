@@ -636,5 +636,26 @@ netstat -natp
 tcpdump -nn -i {网卡}  // 可通过ifconfig来查看需要抓包的网卡
 ```
 
+## 8. Redis
 
+跳跃表：是一种多层链表, 最底层是一个有序的链表, 每一层都从上层抽取出来一些关键节点, 这样查找效率就会变成近似二叉查找树, 只不过空间占用也变成了2n, Redis中的Sorted Set就是基于此实现
 
+可以用setnx来做一个分布式锁, setnx即set if not exist, 当要set某个值的时候, 需要先用setnx去设置另外一个值, 这个值就相当于一个锁, 然后setnx之后需要设置expire时间, 防止忘记释放锁等. 但是由于setnx和expire是两个操作不能保证原子性, 因此可以使用 `set name value ex seconds nx`
+
+```shell
+set key value [EX seconds] [PX milliseconds] [NX|XX]
+EX seconds：设置失效时长，单位秒
+PX milliseconds：设置失效时长，单位毫秒
+NX：key不存在时设置value，成功返回OK，失败返回(nil)
+XX：key存在时设置value，成功返回OK，失败返回(nil)
+```
+
+缓存穿透指的是大规模请求一个不存在的值导致超大并发打在DB上, 通常采用参数校验, 设置黑名单, 拉黑IP, 布隆过滤器等方式进行解决
+
+布隆过滤器(BloomFilter): 对一个key进行n次hash, 再将再到数组中n个对应的位置的值设为1, 查找是否存在的时候就再次通过hash去判断所有值是否为1, 这样可以同时节省空间又有很高的查找效率, 缺点就是有一定的误判率, 误判率和hash的次数有关, 因此在创建BloomFilter的时候, 通常需要传入期望误判率以及存入数据量, 通过这两个值去计算数组的长度, 再通过数组长度计算hash次数. 使用BloomFIlter做缓存穿透, 将数据库中待查询的所有的值都放入BloomFilter中, 查询过来后首先通过BloomFilter进行判断是否存在, BloomFilter也可以用来做大数据量的去重等等
+
+缓存雪崩指的是指大量缓存同时过期导致所有请求全部打到DB, 给每个key设置过期时间的时候需要加上一个随机值, 保证不会同时过期, 同时对于热点数据设置永不过期仅仅更新数据
+
+缓存击穿值某个热点数据一值抗着大并发, 突然失效后会导致缓存像穿了一个洞一样, 解决就是设置热点数据永不过期或者对于从数据库获取这个key的操作加一个互斥锁
+
+Redis的持久化分为RDB(Redis Database)和AOF(Append Only File), RDB是将整个redis备份, 而AOF则是备份每一条命令, RDB在bgsave过程中增加的数据是不会写入的, 因此不能保证完整性, AOF则是每条命令都会记录, 因此完整性好但是会影响效率
