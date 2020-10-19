@@ -471,7 +471,7 @@ Collections.synchronizedMap(Map) 和HashTable都是线程安全的, 但是实现
 
 ​	当对一个集合使用interator对一个集合进行遍历的时候, 若这个集合被修改, 就会抛出Concurrent Modification Exception
 
-​	原理: 一个变量modCount, 当对集合进行操作的时候, 就会修改这个变量的值, 而在进行遍历的时候, 首先会将modCount的值赋给expectedModCount, 然后每次循环都会去检查modCount是否等于expectedModCount, 如果不相等, 就抛出上述异常 *(Iterator中的remove()方法可以在遍历的时候使用, 他在remove之后会去修改expectedModCount的值, 所以不会抛出异常)*
+​	原理: 一个变量modCount, 当对集合进行操作的时候, 就会修改这个变量的值, 而在进行遍历的时候, 首先会将modCount的值赋给expectedModCount, 然后每次循环都会去检查modCoun时候, 传入参数true, 获得t是否等于expectedModCount, 如果不相等, 就抛出上述异常 *(Iterator中的remove()方法可以在遍历的时候使用, 他在remove之后会去修改expectedModCount的值, 所以不会抛出异常)*
 
 ​	Java.util下面的集合如HashMap和ArrayList等都实现了fail-fast(但是HashTable是用的fail-safe, 因为其支持多线程), 是一种安全机制, 但是这个机制的缺陷在于有可能修改后的modCount的值和之前的值相等, 因此还是不能依赖于这个机制进行并发编程, 只建议用于检测并发修改的bug
 
@@ -596,9 +596,9 @@ TCP/IP协议分为四层, **应用层 传输控制层 网络层 网络接口层*
   4. client -ack-> server // client收到FIN包后, 发送一个ACK包给server, client状态变为TIME_WAIT, server收到ACK包后, 状态变为CLOSE
   
      ![wave](https://upload-images.jianshu.io/upload_images/11362584-63aad9661131a2a8.jpeg?imageMogr2/auto-orient/strip|imageView2/2/w/439/format/webp)
-  
+
   clinet需要变为TIME_WAIT等待2MSL(Maximum Segment Lifetime)以确保server收到了client发的ACK包, 因为client在发送ACK包后无法知晓是否server有收到, 如果server没有收到, 就会重发FIN包, 之后client再次发送ACK包再等待2MSL时间, 2MSL是数据包往返的最大时间, 如果2MSL后还没有收到server重发的FIN包, 则表明server收到了ACK包, 2MSL后client状态变为CLOSE
-  
+
   *图片出自 https://www.jianshu.com/p/066d99da7cbd*
 
 #### UDP
@@ -623,8 +623,8 @@ ARP协议原理:
 2. 如果主机A在ARP缓存中没有找到映射, 它将询问192.168.1.2的硬件地址, 从而将ARP请求帧广播到本地网络上的所有主机. 源主机A的IP地址和MAC地址都包括在ARP请求中. 本地网络上的每台主机都接收到ARP请求并且检查是否与自己的IP地址匹配. 如果主机发现请求的IP地址与自己的IP地址不匹配, 它将丢弃ARP请求.
 
    	3. 主机B确定ARP请求中的IP地址与自己的IP地址匹配, 则将主机A的IP地址和MAC地址映射添加到本地ARP缓存中. 
-   	4. 主机B将包含其MAC地址的ARP回复消息直接发送回主机A. 
-   	5. 当主机A收到从主机B发来的ARP回复消息时, 会用主机B的IP和MAC地址映射更新ARP缓存. 本机缓存是有生存期的, 生存期结束后, 将再次重复上面的过程. 主机B的MAC地址一旦确定, 主机A就能向主机B发送IP通信了. 
+      	4. 主机B将包含其MAC地址的ARP回复消息直接发送回主机A. 
+              	5. 当主机A收到从主机B发来的ARP回复消息时, 会用主机B的IP和MAC地址映射更新ARP缓存. 本机缓存是有生存期的, 生存期结束后, 将再次重复上面的过程. 主机B的MAC地址一旦确定, 主机A就能向主机B发送IP通信了. 
 
 在通过上述拿到对应主机或路由器MAC地址后, 通过物理层将包发送出去
 
@@ -659,3 +659,285 @@ XX：key存在时设置value，成功返回OK，失败返回(nil)
 缓存击穿值某个热点数据一值抗着大并发, 突然失效后会导致缓存像穿了一个洞一样, 解决就是设置热点数据永不过期或者对于从数据库获取这个key的操作加一个互斥锁
 
 Redis的持久化分为RDB(Redis Database)和AOF(Append Only File), RDB是将整个redis备份, 而AOF则是备份每一条命令, RDB在bgsave过程中增加的数据是不会写入的, 因此不能保证完整性, AOF则是每条命令都会记录, 因此完整性好但是会影响效率
+
+## 9. JVM
+
+目前主流的JVM 包括
+
+- HotSpot VM 自JDK8以来最主流的VM
+- JRockit VM 专注于服务器端的VM, 目前已被oracle收购整合到HotSpot中
+- J9 VM 主要用于IBM的设备
+- Graal VM, oracle新推出的一款VM, 号称贼NB
+
+以下内容基本都是基于HotSpot, 分为3部分, 类加载子系统, 运行时数据区(内存模型), 执行引擎
+
+### 1. 类加载子系统(Class Loader SubSystem)
+
+类加载器子系统负责加载class文件, class文件在开头都有特定的文件标志, 如cafebabe
+
+只负责加载, 是否执行由执行引擎决定
+
+加载的类信息存放在方法区(Method Area)里面
+
+主要分为3个阶段, 加载(Loading)->链接(Linking)->初始化(Initialization)
+
+#### 1.1 Loading
+
+通过名字获取文件的二进制流, 将其转化为方法区的运行时数据结构, **在内存中生成一个代表这个类的java.lang.Class对象**作为方法区这个类的各种数据访问入口
+
+#### 1.2 Linking
+
+- Verify 验证class文件是否合法
+- Prepare 
+  - 为类变量(static修饰的变量)分配内存并设置默认值, 即零值(在初始化阶段才会将你写的值赋给这个变量)
+  - 用final修饰的static不是变量而是常量了, 会在编译的时候就分配, 准备阶段会显式地初始化
+  - 不会为实例变量分配初始化, 类变量会分配在方法区中, 实例变量会随对象一起分配到Java堆中
+- Resolve解析, 将常量池内的符号引用转化为直接引用的过程(没懂)
+
+#### 1.3 Initialization
+
+调用类构造器方法`<clinit>()`的过程
+
+- 该方法是java编译器自动收集类中的所有类变量赋值动作和静态代码块中的语句合并而来, 可通过jclasslib查看
+
+- `<clinit>()`中的指令按照语句在源文件中出现的顺序执行, 例如下面代码, 最后的输出结果会是1, 并且`num`在静态代码块中只能进行赋值不能进行调用
+
+  ```java
+      static {
+          num = 2;
+      }
+      static int num = 1;
+      public static void main(String[] args) {
+          System.out.println(num);
+      }
+  ```
+
+- `<clinit>()`的执行顺序和对象构造器相同, 先执行父类的`<clinit>()`再执行子类的
+
+- 虚拟机必须保证一个类的`<clinit>()`方法在多线程下被同步加锁, 即只会初始化一次, Singlton利用静态内部类来实例化来保证线程安全的方式就是利用了这个特点
+
+  ```java
+  public class MySingleton {
+      private static class MySingletonHandler{
+          private static MySingleton instance = new MySingleton();
+      }
+      private MySingleton(){}
+      public static MySingleton getInstance() {
+          return MySingletonHandler.instance;
+      }
+  }  
+  ```
+
+#### 1.4 类加载器(ClassLoader)
+
+虚拟机自带加载器: 引导类加载器(Bootstrap ClassLoader), 扩展类加载器(Extension Classoader), 系统类加载器(AppClassLoader)
+
+##### 1 BootStrap ClassLoader
+
+- 由C/C++实现的, 嵌套在JVM内部
+- 用来加载Java的核心库(`rt.jar`, `resources.jar`或`sun.boot.class.path`的内容), 用于提供JVM本身需要的类
+- 不是继承自`java.lang.ClassLoader`, 没有父加载器
+- `ExtClassLoader`和`AppClassLoader`也是由该加载器加载
+- 只加载包名为java, javax, sun等开头的类
+
+##### 2 ExtClassLoader
+
+- 由`sun.misc.Launcher$ExtClassLoader`实现, 派生自`ClassLoader`抽象类
+- 父加载器为BootStrap ClassLoader
+- 从`java.ext.dirs`属性指定的目录中加载类库, 或者从JDK安装目录下`jre/lib/ext`下加载类库
+
+##### 3 AppClassLoader
+
+- 由`sun.misc.Launcher$AppClassLoader`实现, 派生自`ClassLoader`抽象类
+- 父加载器为`ExtClassLoader`
+- 负责加载环境变量`classpath`或系统属性`java.class.path`指定下的类库
+- 该加载器是程度默认的类加载器, 我们一般的类都是由该ClassLoader进行加载的
+- 通过`ClassLoader#getSystemClassLoader()`可以获取到该类加载器
+
+##### 4 用户自定义类加载器
+
+在必要的时候可以自定义类加载器来定制类的加载方式
+
+- 隔离加载类
+- 修改类的加载方式
+- 扩展加载源
+- 防止源码泄漏
+
+主要是通过继承`ClassLoader`类及其子类来实现
+
+#### 1.4 双亲委派机制
+
+Java虚拟机对class文件采用的是按需加载的方式, 就是说只有在需要使用该类的时候才会将它的class文件加载到内存中生成class对象. 而且加载某个类的class文件的时候, Java虚拟机采用的是双亲委派模式, 即将请求交给父类处理, 是一种任务委派模式.
+
+不同的ClassLoader负责加载不同类型的Class以保证安全
+
+原理:
+
+1. 如果一个类加载器受到了类加载的请求, 它不会自己先去加载, 而是把这个请求委托给父类的加载器去执行
+2. 如果父类加载器还存在其父类加载器, 则进一步向上委托, 依次递归, 最终请求将到达顶层的启动类加载器
+3. 如果父类加载器可以完成类的加载任务, 就返回成功, 若父类加载器无法完成此加载任务, 子加载器才会尝试自己去加载
+
+举例:
+
+在自己的应用中创建一个java.lang的包, 并在里面创建一个叫做String的类, 在里面写上一个main方法, 但是当我们去运行这个main方法的时候会提示我们找不到main方法, 这是因为这个类的加载任务由启动类加载器(Bootstrap ClassLoader)完成了, 而启动类加载器加载的是rt.jar里面的String类, 而不是我们自己定义的String类
+
+作用:
+
+1. 防止重复加载同一个类, 通过委托依次向上询问, 加载过了就不再加载, 保证数据安全
+2. 保证核心API不会被篡改, 即使篡改也不会去加载, 即使加载也不会是同一个类对象, 这样保证了Class执行安全
+
+#### 1.5 其他
+
+1 在JVM中表示两个class对象是否为同一个类有两个必要条件:
+
+- 类的完整类名必须一致, 包括包名
+- 加载这个类的ClassLoader(指ClassLoader的实例对象)必须相同, 如果两个类对象来自同一个Class文件, 但是加载它们的ClassLoader实例对象不同, 那么这两个类对象也是不同的
+
+2 JVM 必须指导一个类型是由启动类加载器加载还是用户加载器加载的(除Bootstrap ClassLoader以外的ClassLoader其实都可以算作是用户加载器), 如果是由用户类加载器加载的, 那么JVM会将这个类加载器的一个引用作为类型信息的一部分保存在方法区. 当解析一个类型到另外一个类型的引用的时候, JVM 需要保证这两个类型的类加载器是相同的
+
+3 Java对类的使用方式分为: 主动使用和被动使用
+
+主动使用分下面7中情况:
+
+- 创建类的实例
+
+- 访问类或接口的静态变量, 或者对该静态变量赋值
+
+- 调用类的静态方法
+
+- 反射(比如: Class.forName("com.test.Test"))
+
+- 初始化一个类的子类
+
+- JVM启动时被标明为启动类的类
+
+- JDK7开始提供的动态语言支持:
+
+  java.lang.invoke.MethodHandle实例的解析结果
+
+除了以上7种情况, 其他使用Java类的方式都被看作是对类的被动使用, 都不会导致类的初始化, 即`<clinit>()`方法的调用
+
+### 2. 内存模型(运行时数据区)
+
+- 堆区 Heap
+- 方法区 Method Area (元空间 Metadata space)
+- 本地方法栈 Native Method Statck
+- 虚拟机栈 Java Virtual Machine Stack 
+- 程序计数器 Program Counter Register个请求委托给父类的加载器去执行
+
+Heap和Method Area是进程级别的
+
+NMS, VMS和PCR是线程私有的
+
+#### 2.1 程序计数器
+
+每个线程都有一个自己的程序计数器, 作用和CPU的寄存器相似, 准确地记录各个线程正在执行的当前字节玛指令地址,
+
+作用: 用来记录当前线程运行到哪一步了, 因为CPU是轮流运行各个线程的, 因此需要一个地方记录以便下次运行到该线程的时候能够继续运行
+
+存在GC和OOM
+
+#### 2.2 虚拟机栈
+
+每个线程在创建的时候都会创建一个虚拟机栈, 其内部保存一个个的栈帧
+
+线程私有的, 生命周期和线程相同
+
+主管Java程序的运行, 它保存方法的局部变量, 部分结果, 并参与方法的调用和返回
+
+操作:
+
+1. 每个方法执行, 伴随着进栈
+2. 执行结束后的出栈工作
+
+Java虚拟机允许Java栈的大小是动态的或者是固定不变的
+
+1. 如果采用固定大小的Java虚拟机栈, 每个线程的的Java虚拟机栈通量可以在线程创建的时候独立选定, 如果线程请求分配的栈容量超过Java虚拟机栈允许的最大容量, 就会抛出`StackOverflowError`
+2. 如果可以动态扩展, 并且在尝试扩展的时候无法申请到足够的内存, 或者在创建新的线程时没有足够的空间去创建对应的虚拟机栈, 就会抛出`OutOfMemoryError`
+
+通过`-Xss256k`可以调整栈的大小
+
+**栈帧(Stack Frame)**
+
+虚拟机栈中的数据都是以栈帧的格式存在的
+
+这个线程上正在执行的每个方法都对应一个栈帧
+
+栈帧是一个内存区块, 一个数据集, 维系着方法执行过程中的各种数据信息
+
+方法的两种结束方式, return和抛出异常都会导致当前栈帧被弹出
+
+栈帧结构
+
+- 局部变量表(Local Variables Table)
+- 操作数栈(Operand Stack)
+- 动态链接(Dynamic Linking) 指向运行时常量池的方法引用
+- 方法返回地址(Return Address) 方法正常退出或者异常退出的定义
+- 一些附加信息
+
+##### 1. 局部变量表
+
+​	定义一个数字数组, 主要用于存储方法参数和定义在方法体内的局部变量, 包括各类基本数据类型, 对象引用(reference)以及returnAddress类型
+
+​	局部变量表中最基本的存储单元是Slot(槽), 32位以内的类型之占用一个slot, 64位的类型(long和double)占用两个
+
+​	局部变量表所需的容量大小是在编译器确定下来的, 并保存在方法的Code属性的maximum local variables数据项中, 方法运行期间是不会修改局部变量表的大小的
+
+​	一个方法定一个参数和局部变量越多, 其栈帧的大小就越大, 栈帧占用的栈空间也就越大
+
+​	方法执行时, 虚拟机通过使用局部变量表完成参数值到参数变量列表的传递过程, 方法调用结束后, 随着方法栈帧的销毁, 局部便量表也会随之销毁
+
+​	栈帧中与性能调优最密切的部分就是局部变量表, 方法执行时, 虚拟机使用局部变量表完成方法的传递
+
+​	局部变量表中的变量也是重要的垃圾回收根节点, 只要被局部变量表中直接或简介引用的对象都不会被回收
+
+#####  2. 操作数栈
+
+在方法执行过程中, 根据字节玛指令, 往栈中写入数据或者提取数据, 用于保存计算过程的中间结果, 同时作为计算过程中变量临时的]存储空间
+
+操作数栈是用数组实现的, 每个操作数栈都会有一个明确的栈深度用于存储数值, 其所需的最大深度在编译期就定义好了, 保存在Code属性中
+
+同样也是32位的类型占用一个栈深度, 64位的类型占用两个栈深度
+
+##### 3. 动态链接
+
+每个栈帧内部都包含一个指向运行时常量池中该栈帧所属方法的引用. 目的是为了支持当前方法的代码能够实现动态链接
+
+Java源文件在被编译到字节玛文件中时, 所有的变量和方法引用都作为符号引用(Symbolic Reference) 保存在class文件的常量池中, 描述一个方法调用了另外的方法时, 就是通过常量池中指向方法的符号引用来表示的, 动态链接的作用就是为了将这些符号引用转换为调用方法的直接引用
+
+3.1 虚方法和非虚方法调用指令
+
+- invokestatic: 调用静态方法  -- 非虚
+- invokespecial: 调用<init>方法, 私有及父类方法 -- 非虚
+- invokevirtual: 调用所有虚方法(除final以外)
+- invokeinterface: 调用所有接口方法(也是虚方法)
+- invokedynamica: Lambda 表达式这一类调用
+
+#### 2.3 堆
+
+##### 1 内存结构
+
+Java8 之后堆内存逻辑上分为三个部分: 新生区, 养老区和元空间
+
+- Young Generation Space 新生区  Young/New
+  - 又被分为Eden区和Survivor区
+- Tenure Generation Space 养老区  Old/Tenure
+- Meta Space 元空间  Meta
+
+设置堆空间大小的参数: -Xms 和 -Xmx分别设置堆空间的初始大小和最大大小
+
+设置堆空间设置的是`年轻代+老年代`的大小, 不能控制元空间的大小
+
+默认堆空间大小:
+
+- 初始内存大小默认为电脑内存大小 / 64
+- 最大内存大小默认为电脑内存大小 / 4
+
+在生产环境中最好通过参数将初始大小和最大大小设为一样的值, 防止内存抖动
+
+查看堆内各个部分所占的内存大小方式:
+
+- jps 查看java进程ID, jstat -gc processID
+- 添加JVM 参数 `-XX:+PrintGCDetails`, 在进程结束之后, 将会打印出GC以及内存使用情况
+
+通过RunTime等方式获取到的总的内存占用量通常会比实际设置的少一些, 这是因为Copy清除的GC方式决定了两个Survivor区域始终只有一个被使用而另一个被闲置, 因此在计算总量的时候只会计算一个Survivor区域的内存
